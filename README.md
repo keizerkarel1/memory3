@@ -46,6 +46,32 @@ Final mapping (see `src/config.h`):
 Buttons use `INPUT_PULLUP`; wire the other side of each button to **GND**.
 LED data lines go through the TXS0108E to the strip `DIN`.
 
+### Power topology
+
+The ESP32 can be powered from three sources. Recommended: use **both** the
+Mean Well PSU and the RPi5 USB cable in parallel. The DevKitC-1 diode-ORs
+`VBUS` (from USB) with the external `5V` pin, so dual-powering is explicitly
+safe and gives you graceful behavior when either source drops.
+
+```
+PSU 5V ─┬───→ ESP32 `5V` pin            (primary, high-current reserve)
+        └───→ All LED strip +5V
+PSU GND ─┬──→ ESP32 GND pin             (common reference — required)
+         ├──→ All LED strip GND
+         └──→ TXS0108E GND
+RPi5 USB-A ───→ ESP32 UART port         (data link; also back-feeds 5V,
+                                        which is fine thanks to the diode-OR)
+```
+
+Current budget: ESP32 itself draws ≤ 200 mA. Strips are PSU-fed directly, so
+the RPi5 USB port is not loaded by the LEDs. This keeps well within the
+RPi5's ~1.2 A per-port limit and the Mean Well's 30 A budget.
+
+If for any reason you want to **prevent** the RPi USB from powering the
+ESP32 (e.g. to guarantee power-sequencing from the PSU only), use a
+data-only USB cable (commercial "USB charging disabler", or DIY by cutting
+the VBUS wire). This is **not necessary** for normal operation.
+
 ---
 
 ## Build / flash (local laptop)
