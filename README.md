@@ -1,7 +1,7 @@
-# Memory Game — Vonk Gespreksstarters
+# Memory Game — Vonk Museumpark
 
 ESP32-S3 firmware for the 10-box "Old & New" memory game.
-See [`memory-opus.md`](memory-opus.md) for the full design document.
+See [`design.md`](design.md) for the full design document.
 
 ---
 

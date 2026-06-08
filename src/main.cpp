@@ -2,7 +2,7 @@
 // ----------------------------------------------------------------------------
 // Memory Game — top-level state machine.
 //
-// Game rules (summarised from memory-opus.md):
+// Memory Game — game rules (summarised from design.md):
 //   * 10 boxes, 5 pairs (1A/1B .. 5A/5B).
 //   * On boot: cycle all strips RED → GREEN → BLUE, then go IDLE.
 //   * Pressing a button on an IDLE box → that box becomes ACTIVE (blue pulse).
