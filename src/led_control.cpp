@@ -49,6 +49,9 @@ bool dirty[NUM_BOXES] = {true, true, true, true, true, true, true, true, true, t
 
 uint32_t lastRefreshMs = 0;
 
+// Night mode flag — while true, tick() does not touch the strips.
+bool sleeping = false;
+
 // ---------------------------------------------------------------------------
 // Low-level fill helpers.
 // ---------------------------------------------------------------------------
@@ -147,12 +150,36 @@ void setBoxState(uint8_t socket, BoxState s) {
 }
 
 void setAllIdle() {
+    sleeping = false;
     for (uint8_t i = 0; i < NUM_BOXES; ++i) {
-        setBoxState(i, BoxState::IDLE);
+        // Force a redraw even if the recorded state was already IDLE: after a
+        // sleep the strips are physically dark while currentState says IDLE.
+        currentState[i] = BoxState::IDLE;
+        dirty[i] = true;
     }
 }
 
+void setSleeping(bool s) {
+    if (s == sleeping) return;
+    sleeping = s;
+    if (sleeping) {
+        for (uint8_t i = 0; i < NUM_BOXES; ++i) {
+            fillAndShow(i, 0, 0, 0, 0);
+            currentState[i] = BoxState::IDLE;
+            dirty[i] = false;
+        }
+    } else {
+        setAllIdle();
+    }
+}
+
+bool isSleeping() {
+    return sleeping;
+}
+
 void tick() {
+    if (sleeping) return;   // night mode: strips stay dark
+
     uint32_t now = millis();
 
     // Throttle refresh so we don't hammer the CPU with bit-banging (which

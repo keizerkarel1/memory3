@@ -24,8 +24,13 @@ void powerOnTest();
 // Record the desired state for a single box. Cheap; does not push to LEDs.
 void setBoxState(uint8_t socket, BoxState s);
 
-// Force all 10 boxes to IDLE.
+// Force all 10 boxes to IDLE. Also leaves sleep mode (see setSleeping).
 void setAllIdle();
+
+// Night mode: when sleeping, every strip is switched fully off and tick()
+// renders nothing until setSleeping(false) / setAllIdle() is called.
+void setSleeping(bool sleeping);
+bool isSleeping();
 
 // Render animations and push any changes to the LED strips. Call from loop().
 // Must be called frequently (at least every LED_REFRESH_MS ms).
