@@ -21,6 +21,7 @@ no start, no end, no score.
 - Single `waitingSocket` global tracks which box is awaiting a partner
 - Task watchdog (5 s) — auto-reboots on hang
 - Serial simulation mode (`ENABLE_SERIAL_SIMULATION 1`) — type "1A", "1B" etc. to test without hardware
+- Night mode: serial `SLEEP [seconds]` / `WAKE` / `STATUS` from the Pi (`vonk-ops` repo); strips off, presses ignored, auto-wake after `SLEEP_MAX_S`
 - Power-on self-test: cycles all strips RED → GREEN → BLUE
 
 ## Hardware Notes
@@ -31,7 +32,8 @@ no start, no end, no score.
 - Level shifters (TXS0108E) required between ESP32 3.3V and LED strip 5V data.
 - Power topology: Mean Well 5V/30A PSU feeds ESP32 `5V` pin + all LED strips.
   Pi USB serial cable can also power the ESP32 (diode-OR safe).
-- 2 USB-C ports: **UART** (CH340, `/dev/ttyUSB*`) for flashing; **USB** (native, `/dev/ttyACM*`) for JTAG.
+- 2 USB-C ports: **UART** (CH340, `/dev/ttyUSB*`) and **USB** (native, `/dev/ttyACM*`). **Deployed: native USB → `/dev/ttyACM0` on the Pi**, held open by `serial_logger.py`.
+- `platform = espressif32 @ 6.13.0` is pinned on purpose (Arduino core 2.x WDT API).
 
 ## Related Docs
 

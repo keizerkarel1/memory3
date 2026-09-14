@@ -13,6 +13,9 @@
 //     independently.
 //   * All non-idle boxes revert to IDLE after STATE_TIMEOUT_MS (10 s).
 //   * No start, no end, no score, no sound. Infinite loop.
+//   * Night mode: the Raspberry Pi sends "SLEEP [seconds]" over USB serial at
+//     closing time (all strips off, buttons ignored) and "WAKE" at opening
+//     time. A missed WAKE is covered by an auto-wake after SLEEP_MAX_S.
 //
 // Design note: the state machine runs *per box*. A small global holds "which
 // box is currently waiting for a partner" so that the second press can be
@@ -37,9 +40,10 @@
 static constexpr uint32_t LOOP_WDT_TIMEOUT_S = 5;
 
 // Wrapper that only prints when the USB-CDC host is actually attached, so a
-// detached unit can't block on a full TX buffer.
-#define LOGF(...)  do { if (Serial) Serial.printf(__VA_ARGS__); } while (0)
-#define LOGLN(s)   do { if (Serial) Serial.println(s); } while (0)
+// detached unit can't block on a full TX buffer. Every line is prefixed with
+// the millis() uptime so the Pi-side serial logger can correlate events.
+#define LOGF(...)  do { if (Serial) { Serial.printf("[%8lu] ", (unsigned long)millis()); Serial.printf(__VA_ARGS__); } } while (0)
+#define LOGLN(s)   do { if (Serial) { Serial.printf("[%8lu] ", (unsigned long)millis()); Serial.println(s); } } while (0)
 
 // ---------------------------------------------------------------------------
 // Per-box runtime state.
@@ -54,6 +58,11 @@ static BoxRuntime box[NUM_BOXES];
 // Index of a box currently ACTIVE and waiting to be paired with a second
 // press, or 0xFF if none.
 static uint8_t waitingSocket = 0xFF;
+
+// Night mode bookkeeping (see enterSleep / exitSleep).
+static bool     sleeping       = false;
+static uint32_t sleepStartedMs = 0;
+static uint32_t sleepMaxMs     = 0;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,6 +126,49 @@ static void handlePress(uint8_t socket) {
 }
 
 // ---------------------------------------------------------------------------
+// Night mode — SLEEP / WAKE
+// ---------------------------------------------------------------------------
+static void enterSleep(uint32_t seconds) {
+    if (seconds == 0 || seconds > SLEEP_MAX_S_CAP) seconds = SLEEP_MAX_S;
+
+    waitingSocket = 0xFF;
+    for (uint8_t i = 0; i < NUM_BOXES; ++i) {
+        box[i].state       = BoxState::IDLE;
+        box[i].enteredAtMs = millis();
+    }
+    led::setSleeping(true);
+
+    sleeping       = true;
+    sleepStartedMs = millis();
+    sleepMaxMs     = seconds * 1000UL;
+    LOGF("[SLEEP] all strips off, auto-wake in %lu s\n", (unsigned long)seconds);
+}
+
+static void exitSleep(const char* reason) {
+    sleeping = false;
+    led::setSleeping(false);   // -> setAllIdle(): every strip back to white 20 %
+    for (uint8_t i = 0; i < NUM_BOXES; ++i) {
+        box[i].state       = BoxState::IDLE;
+        box[i].enteredAtMs = millis();
+    }
+    waitingSocket = 0xFF;
+    LOGF("[WAKE] all boxes idle (%s)\n", reason);
+}
+
+static void printStatus() {
+    uint32_t remaining = 0;
+    if (sleeping) {
+        uint32_t elapsed = millis() - sleepStartedMs;   // wrap-safe
+        remaining = (elapsed < sleepMaxMs) ? (sleepMaxMs - elapsed) / 1000UL : 0;
+    }
+    LOGF("[STATUS] sleeping=%d auto_wake_in_s=%lu uptime_s=%lu waiting=%s\n",
+         sleeping ? 1 : 0,
+         (unsigned long)remaining,
+         (unsigned long)(millis() / 1000UL),
+         waitingSocket == 0xFF ? "none" : SOCKET_LABELS[waitingSocket]);
+}
+
+// ---------------------------------------------------------------------------
 // Timeout sweep — any box in a non-idle state for > STATE_TIMEOUT_MS reverts.
 // ---------------------------------------------------------------------------
 static void sweepTimeouts() {
@@ -131,11 +183,59 @@ static void sweepTimeouts() {
 }
 
 // ---------------------------------------------------------------------------
-// Optional serial-simulation: type "1A<enter>" etc. to simulate a button.
+// Serial commands (newline-terminated, case-insensitive):
+//   SLEEP [seconds]  night mode: strips off, buttons ignored, auto-wake timer
+//   WAKE             leave night mode
+//   STATUS           print one status line
+//   1A .. 5B         simulate a button press (only if ENABLE_SERIAL_SIMULATION)
 // ---------------------------------------------------------------------------
+static void handleSerialCommand(char* line) {
+    // Upper-case in place for case-insensitive matching.
+    for (char* c = line; *c; ++c) {
+        if (*c >= 'a' && *c <= 'z') *c -= 32;
+    }
+
+    // Split "CMD ARG" on the first space.
+    char* arg = strchr(line, ' ');
+    if (arg) {
+        *arg++ = '\0';
+        while (*arg == ' ') ++arg;
+    }
+
+    if (strcmp(line, "SLEEP") == 0) {
+        uint32_t seconds = SLEEP_MAX_S;
+        if (arg && *arg) {
+            unsigned long parsed = strtoul(arg, nullptr, 10);
+            seconds = (parsed == 0) ? SLEEP_MAX_S : (uint32_t)parsed;
+        }
+        enterSleep(seconds);
+        return;
+    }
+    if (strcmp(line, "WAKE") == 0) {
+        if (sleeping) exitSleep("command");
+        else          LOGLN(F("[WAKE] already awake"));
+        return;
+    }
+    if (strcmp(line, "STATUS") == 0) {
+        printStatus();
+        return;
+    }
+
 #if ENABLE_SERIAL_SIMULATION
-static void pollSerialSimulation() {
-    static char   buf[8];
+    for (uint8_t i = 0; i < NUM_BOXES; ++i) {
+        if (strcmp(line, SOCKET_LABELS[i]) == 0) {
+            LOGF("[SIM] press %s\n", SOCKET_LABELS[i]);
+            buttons::injectPress(i);
+            return;
+        }
+    }
+#endif
+
+    LOGF("[SIM] unknown token '%s' (try SLEEP, WAKE, STATUS, 1A..5B)\n", line);
+}
+
+static void pollSerialCommands() {
+    static char    buf[SERIAL_CMD_BUF];
     static uint8_t len = 0;
 
     while (Serial.available() > 0) {
@@ -143,35 +243,16 @@ static void pollSerialSimulation() {
         if (c == '\r' || c == '\n') {
             if (len == 0) continue;
             buf[len] = '\0';
-
-            // Upper-case for case-insensitive match.
-            for (uint8_t i = 0; i < len; ++i) {
-                if (buf[i] >= 'a' && buf[i] <= 'z') buf[i] -= 32;
-            }
-
-            int8_t matched = -1;
-            for (uint8_t i = 0; i < NUM_BOXES; ++i) {
-                if (strcmp(buf, SOCKET_LABELS[i]) == 0) {
-                    matched = i;
-                    break;
-                }
-            }
-            if (matched >= 0) {
-                LOGF("[SIM] press %s\n", SOCKET_LABELS[matched]);
-                buttons::injectPress(matched);
-            } else {
-                LOGF("[SIM] unknown token '%s' (try 1A..5B)\n", buf);
-            }
+            handleSerialCommand(buf);
             len = 0;
         } else if (len < sizeof(buf) - 1) {
             buf[len++] = c;
         } else {
-            // Overflow — reset.
+            // Overflow — discard the line.
             len = 0;
         }
     }
 }
-#endif
 
 // ---------------------------------------------------------------------------
 // setup() / loop()
@@ -204,6 +285,7 @@ void setup() {
 #if ENABLE_SERIAL_SIMULATION
     LOGLN(F("[SIM] type 1A..5B + <enter> to simulate button presses"));
 #endif
+    LOGLN(F("[NIGHT] serial commands: SLEEP [seconds] / WAKE / STATUS"));
 
     // Arm the task watchdog on the loop task. If loop() stops feeding it for
     // LOOP_WDT_TIMEOUT_S, the chip reboots — the game recovers by itself.
@@ -215,12 +297,19 @@ void loop() {
     esp_task_wdt_reset();   // pet the watchdog every iteration
 
     buttons::tick();
-
-#if ENABLE_SERIAL_SIMULATION
-    pollSerialSimulation();
-#endif
+    pollSerialCommands();
 
     uint8_t socket;
+    if (sleeping) {
+        // Night mode: swallow presses, keep strips dark, watch the auto-wake
+        // timer (unsigned subtraction is safe across the millis() wrap).
+        while (buttons::popPress(&socket)) { /* ignored */ }
+        if (millis() - sleepStartedMs >= sleepMaxMs) {
+            exitSleep("timeout");
+        }
+        return;
+    }
+
     while (buttons::popPress(&socket)) {
         handlePress(socket);
     }

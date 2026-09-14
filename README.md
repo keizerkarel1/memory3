@@ -118,6 +118,28 @@ If you use the **USB** (native) port, be aware of these quirks:
 
 ---
 
+## Night mode (serial commands from the Raspberry Pi)
+
+The museum's Raspberry Pi puts the installation to sleep after closing time
+and wakes it before opening (see the `vonk-ops` repo). Because the ESP32 has no
+clock, the Pi sends plain-text commands over the USB serial link (115200 baud,
+newline-terminated, case-insensitive). They are accepted regardless of
+`ENABLE_SERIAL_SIMULATION`:
+
+| Command | Effect | Reply |
+|---|---|---|
+| `SLEEP` / `SLEEP <seconds>` | All strips off, button presses ignored. Auto-wakes after `<seconds>` (default `SLEEP_MAX_S` = 57600 = 16 h, capped at 24 h) so a missed `WAKE` can never leave the game dark all day. | `[SLEEP] all strips off, auto-wake in 57600 s` |
+| `WAKE` | Back to normal idle (all boxes white @ 20 %). | `[WAKE] all boxes idle (command)` |
+| `STATUS` | No state change. | `[STATUS] sleeping=0 auto_wake_in_s=0 uptime_s=123 waiting=none` |
+
+Every log line is prefixed with the `millis()` uptime (`[  132497] ...`) so the
+Pi-side `serial_logger.py` can correlate events. The Pi writes commands to the
+same `/dev/ttyACM0` the logger reads from; that is fine on Linux as long as the
+writer does not toggle DTR/RTS (see "Which USB port to use").
+
+Try it on the serial monitor: `SLEEP 10` → strips off → after 10 s `[WAKE] ...
+(timeout)`.
+
 ## Serial simulation (development without hardware)
 
 With no buttons/LEDs wired, you can still validate the full state machine over
@@ -191,6 +213,23 @@ Make sure SSH / Tailscale is running so you can reach the Pi remotely (NFR3).
 
 ### Flashing and monitoring from the Pi
 
+> **As deployed (2026):** the ESP32 is connected via its **native USB port**, so
+> it appears as `/dev/ttyACM0` (stable path
+> `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_F0:9E:9E:18:64:18-if00`).
+> `esptool` (installed via pipx on the Pi) handles the download-mode entry itself
+> on this port (`--before default_reset`), so a remote reflash needs no BOOT/RESET
+> button. Stop `serial-logger.service` first (it holds the port and the device
+> re-enumerates after flashing), and back up the running app first:
+>
+> ```bash
+> systemctl --user stop serial-logger.service
+> esptool --chip esp32s3 --port /dev/ttyACM0 read_flash 0x10000 0x300000 ~/firmware-backup-$(date +%F).bin
+> esptool --chip esp32s3 --port /dev/ttyACM0 --before default_reset --after hard_reset write_flash 0x10000 ~/firmware.bin
+> sleep 5; systemctl --user start serial-logger.service
+> ```
+>
+> The commands below describe the alternative CH340/UART wiring.
+
 Assuming the technician connected the ESP32's **UART port** to the RPi5 (see
 "Which USB port to use" above), the device will appear as `/dev/ttyUSB0`:
 
@@ -233,6 +272,7 @@ esptool.py --port /dev/ttyUSB0 write_flash 0x10000 /tmp/firmware.bin
 | `STATE_TIMEOUT_MS` | Auto-reset to idle timeout (10 s). |
 | `PULSE_PERIOD_MS` | Blue-pulse cycle length (1500 ms). |
 | `BUTTON_DEBOUNCE_MS` | Bounce2 debounce (50 ms, per spec). |
+| `SLEEP_MAX_S` / `SLEEP_MAX_S_CAP` | Night-mode auto-wake default (16 h) and hard cap (24 h). |
 
 Changing which socket pairs with which is a one-line change to `partnerOf()`
 in `config.h`.

@@ -112,11 +112,25 @@ static constexpr uint32_t POWERON_STEP_MS      = 1000;    // red/green/blue step
 static constexpr uint32_t LED_REFRESH_MS       = 20;      // how often to redraw animations (~50 Hz)
 
 // ---------------------------------------------------------------------------
+// Night mode (serial SLEEP / WAKE, sent by the Raspberry Pi scheduler)
+// ---------------------------------------------------------------------------
+// The ESP32 has no clock, so the Pi tells it when the museum closes ("SLEEP")
+// and opens ("WAKE"). If the WAKE never arrives (Pi down, cable out) the ESP
+// wakes itself after SLEEP_MAX_S — failing "on" is the safe failure mode in a
+// museum. "SLEEP <seconds>" overrides the default, clamped to SLEEP_MAX_S_CAP.
+static constexpr uint32_t SLEEP_MAX_S      = 57600;   // 16 h default auto-wake
+static constexpr uint32_t SLEEP_MAX_S_CAP  = 86400;   // never sleep longer than 24 h
+
+// ---------------------------------------------------------------------------
 // Serial / debug
 // ---------------------------------------------------------------------------
 static constexpr uint32_t SERIAL_BAUD = 115200;
 
+// Longest accepted serial command line ("SLEEP 57600" = 11 chars + NUL).
+static constexpr uint8_t SERIAL_CMD_BUF = 24;
+
 // Set to 1 to allow simulating button presses by typing socket labels
 // ("1A", "1B", ..., "5B") into the serial monitor. See section 5.1 of the
-// design doc.
+// design doc. The night-mode commands (SLEEP / WAKE / STATUS) are always
+// accepted, independent of this flag.
 #define ENABLE_SERIAL_SIMULATION 1
