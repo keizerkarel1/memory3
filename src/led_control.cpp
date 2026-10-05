@@ -2,13 +2,16 @@
 // ----------------------------------------------------------------------------
 // Implementation detail for led_control.h.
 //
-// One Adafruit_NeoPixel instance per strip (10 total). Adafruit_NeoPixel uses
-// CPU bit-banging for timing, which is a pragmatic fit for this project:
+// One Adafruit_NeoPixel instance per strip (10 total). On the ESP32-S3 the
+// library drives each show() through the RMT peripheral, refilled from an ISR,
+// borrowing a channel only for the duration of the call:
 //
-//   * ESP32-S3 only has 4 RMT TX channels — not enough for 10 DMA strips.
-//   * We update LEDs only on state changes plus a slow ~50 Hz refresh for the
-//     blue pulse, so the ~5 ms blocking show() per 180-LED strip is fine.
-//   * Interrupt jitter from Wi-Fi is irrelevant (Wi-Fi is unused).
+//   * show() blocks the loop task for ~7 ms per 180-LED GRBW strip, but the
+//     CPU is mostly idle meanwhile (the RMT hardware clocks the bits out).
+//   * Interrupt latency (e.g. USB-CDC logging) or noise on the long data cable
+//     can still truncate or corrupt a frame. Static colours are therefore
+//     re-sent periodically, one strip at a time, so a bad frame heals within
+//     about a second (LED_STATIC_REFRESH_MS). The blue pulse heals by itself.
 // ----------------------------------------------------------------------------
 #include "led_control.h"
 
@@ -49,7 +52,11 @@ bool dirty[NUM_BOXES] = {true, true, true, true, true, true, true, true, true, t
 
 uint32_t lastRefreshMs = 0;
 
-// Night mode flag — while true, tick() does not touch the strips.
+// Round-robin periodic refresh (see staggeredRefresh()).
+uint32_t lastStaggerMs = 0;
+uint8_t nextRefresh = 0;
+
+// Night mode flag — while true, tick() only re-sends black to the strips.
 bool sleeping = false;
 
 // ---------------------------------------------------------------------------
@@ -96,6 +103,27 @@ void render(uint8_t socket, BoxState s, uint8_t phase = 0) {
         case BoxState::NO_MATCH:
             fillAndShow(socket, pct(BRIGHTNESS_RESULT_PCT), 0, 0, 0);
             break;
+    }
+}
+
+// Re-send one strip per call, in round-robin order, to repair frames that were
+// corrupted on the way to the LEDs. Uses the normal render path, so a strip
+// that already shows the right colour does not change. ACTIVE (self-healing
+// pulse) and dirty strips (rendered by tick() anyway) are skipped. Silent on
+// purpose: the Pi logs every serial line.
+void staggeredRefresh(uint32_t now) {
+    uint32_t interval = sleeping ? LED_SLEEP_REFRESH_MS
+                                 : LED_STATIC_REFRESH_MS / NUM_BOXES;
+    if (now - lastStaggerMs < interval) return;
+    lastStaggerMs = now;
+
+    uint8_t i = nextRefresh;
+    nextRefresh = (nextRefresh + 1) % NUM_BOXES;
+
+    if (sleeping) {
+        fillAndShow(i, 0, 0, 0, 0);
+    } else if (currentState[i] != BoxState::ACTIVE && !dirty[i]) {
+        render(i, currentState[i]);
     }
 }
 
@@ -178,12 +206,14 @@ bool isSleeping() {
 }
 
 void tick() {
-    if (sleeping) return;   // night mode: strips stay dark
-
     uint32_t now = millis();
 
-    // Throttle refresh so we don't hammer the CPU with bit-banging (which
-    // disables interrupts during each show()).
+#if LED_PERIODIC_REFRESH
+    staggeredRefresh(now);
+#endif
+    if (sleeping) return;   // night mode: strips stay dark
+
+    // Throttle the pulse animation: each show() blocks the loop for ~7 ms.
     if (now - lastRefreshMs < LED_REFRESH_MS) {
         // Still process non-pulse dirty flags immediately.
         bool anyDirty = false;

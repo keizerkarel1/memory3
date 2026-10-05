@@ -11,7 +11,7 @@ no start, no end, no score.
 
 - **C++** with **Arduino framework** on PlatformIO
 - **ESP32-S3-WROOM-1 N16R8** (16 MB flash, 8 MB octal PSRAM)
-- **Adafruit_NeoPixel** — LED strip control (bit-banged, not DMA)
+- **Adafruit_NeoPixel** — LED strip control (RMT, one strip per `show()`; static colours re-sent ~1x/s to heal corrupted frames)
 - **Bounce2** — button debouncing
 - **esptool** — flashing from Pi/laptop
 

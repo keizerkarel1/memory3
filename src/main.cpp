@@ -307,6 +307,7 @@ void loop() {
         if (millis() - sleepStartedMs >= sleepMaxMs) {
             exitSleep("timeout");
         }
+        led::tick();   // keeps re-sending black so a corrupted frame can't stay lit
         return;
     }
 

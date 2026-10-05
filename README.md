@@ -176,9 +176,11 @@ memory/
 ### Why Adafruit_NeoPixel and not NeoPixelBus
 The design doc calls out NeoPixelBus. On ESP32-S3 the RMT peripheral only has
 **4 TX channels**, so 10 independent DMA-driven strips is not possible without
-parallel-I2S tricks that complicate maintenance. `Adafruit_NeoPixel` bit-bangs
-each strip; the ~5 ms blocking `show()` per 180-LED strip is irrelevant because
-we only update LEDs on state changes plus a slow (~50 Hz) pulse refresh.
+parallel-I2S tricks that complicate maintenance. `Adafruit_NeoPixel` borrows
+an RMT channel per `show()` call, one strip at a time; the ~7 ms blocking
+`show()` per 180-LED strip is irrelevant because we only update LEDs on state
+changes, a slow (~50 Hz) pulse refresh and a staggered once-a-second re-send of
+static colours (see below).
 
 ### Robustness features
 * **Task watchdog** — `esp_task_wdt` is armed on the `loop()` task with a 5 s
@@ -190,6 +192,12 @@ we only update LEDs on state changes plus a slow (~50 Hz) pulse refresh.
 * **Guarded serial prints** — all logging goes through `LOGF`/`LOGLN` macros
   that skip the call when no USB-CDC host is attached, so a full TX buffer
   can't stall the game loop.
+* **Periodic LED refresh** — static colours (white / green / red) are sent
+  again about once a second, one strip every 100 ms, so a frame corrupted on
+  the long data cable heals by itself instead of leaving a box stuck on the
+  wrong colour. While sleeping, black is re-sent (one strip per second).
+  Tunable via `LED_STATIC_REFRESH_MS` / `LED_SLEEP_REFRESH_MS`; build with
+  `-DLED_PERIODIC_REFRESH=0` to disable it.
 * **RGBW white idle** — idle uses only the dedicated white LED of the SK6812,
   not R+G+B combined, roughly halving current draw at 20 % brightness (NFR1).
 
