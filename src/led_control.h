@@ -27,13 +27,15 @@ void setBoxState(uint8_t socket, BoxState s);
 // Force all 10 boxes to IDLE. Also leaves sleep mode (see setSleeping).
 void setAllIdle();
 
-// Night mode: when sleeping, every strip is switched fully off and tick()
-// renders nothing until setSleeping(false) / setAllIdle() is called.
+// Night mode: when sleeping, every strip is switched fully off and tick() only
+// re-sends black (one strip per LED_SLEEP_REFRESH_MS) until setSleeping(false)
+// / setAllIdle() is called.
 void setSleeping(bool sleeping);
 bool isSleeping();
 
-// Render animations and push any changes to the LED strips. Call from loop().
-// Must be called frequently (at least every LED_REFRESH_MS ms).
+// Render animations, push any changes to the LED strips and periodically
+// re-send static colours. Call from loop(), also while sleeping. Must be called
+// frequently (at least every LED_REFRESH_MS ms).
 void tick();
 
 }  // namespace led

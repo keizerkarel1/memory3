@@ -111,6 +111,19 @@ static constexpr uint32_t PULSE_PERIOD_MS      = 1500;    // active pulse cycle 
 static constexpr uint32_t POWERON_STEP_MS      = 1000;    // red/green/blue step length
 static constexpr uint32_t LED_REFRESH_MS       = 20;      // how often to redraw animations (~50 Hz)
 
+// Static colours (white / green / red) are re-sent periodically so a frame
+// corrupted on the cable heals within about a second. Strips are refreshed one
+// at a time (every LED_STATIC_REFRESH_MS / NUM_BOXES ms), so each pass blocks
+// for a single ~7 ms show() instead of all ten.
+static constexpr uint32_t LED_STATIC_REFRESH_MS = 1000;   // each static strip re-sent ~1x/s
+static constexpr uint32_t LED_SLEEP_REFRESH_MS  = 1000;   // night: one strip re-blacked per second
+
+// Build with -DLED_PERIODIC_REFRESH=0 to disable the refresh above (e.g. to
+// verify a hardware fix for corrupted frames without the software safety net).
+#ifndef LED_PERIODIC_REFRESH
+#define LED_PERIODIC_REFRESH 1
+#endif
+
 // ---------------------------------------------------------------------------
 // Night mode (serial SLEEP / WAKE, sent by the Raspberry Pi scheduler)
 // ---------------------------------------------------------------------------
