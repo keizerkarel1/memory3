@@ -11,7 +11,11 @@
 //   * Interrupt latency (e.g. USB-CDC logging) or noise on the long data cable
 //     can still truncate or corrupt a frame. Static colours are therefore
 //     re-sent periodically, one strip at a time, so a bad frame heals within
-//     about a second (LED_STATIC_REFRESH_MS). The blue pulse heals by itself.
+//     about a second (LED_STATIC_REFRESH_MS). Animations heal by themselves.
+//
+// Every tick() computes the wanted colour of each strip and only pushes the
+// strips whose colour changed. Animations change colour in steps (breathing
+// every INVITE_FRAME_MS, blinks per step), which caps the LED traffic.
 // ----------------------------------------------------------------------------
 #include "led_control.h"
 
@@ -37,80 +41,108 @@ Adafruit_NeoPixel strips[NUM_BOXES] = {
     Adafruit_NeoPixel(LEDS_PER_STRIP, LED_PINS[9], NEO_GRBW + NEO_KHZ800),
 };
 
-// Current state per box.
-BoxState currentState[NUM_BOXES] = {
-    BoxState::IDLE, BoxState::IDLE, BoxState::IDLE, BoxState::IDLE, BoxState::IDLE,
-    BoxState::IDLE, BoxState::IDLE, BoxState::IDLE, BoxState::IDLE, BoxState::IDLE,
-};
+// Current view per box and when it was entered (animation phase origin).
+BoxView  view[NUM_BOXES];
+uint32_t viewSince[NUM_BOXES];
 
-// Last intensity rendered for a pulsing box (used to skip no-op updates).
-uint8_t lastPulseLevel[NUM_BOXES] = {0};
+// Colour last pushed to each strip, and whether it must be pushed regardless.
+uint32_t sent[NUM_BOXES];
+bool     force[NUM_BOXES];
 
-// Whether the strip currently needs a push on next tick (e.g. after a state
-// change). Separate from animated pulse updates.
-bool dirty[NUM_BOXES] = {true, true, true, true, true, true, true, true, true, true};
+Style    currentStyle = static_cast<Style>(DEFAULT_STYLE % NUM_STYLES);
 
-uint32_t lastRefreshMs = 0;
+// All inviting boxes breathe in sync; the phase starts when the invite starts.
+bool     inviting    = false;
+uint32_t inviteEpoch = 0;
 
 // Round-robin periodic refresh (see staggeredRefresh()).
 uint32_t lastStaggerMs = 0;
-uint8_t nextRefresh = 0;
+uint8_t  nextRefresh   = 0;
 
 // Night mode flag — while true, tick() only re-sends black to the strips.
 bool sleeping = false;
 
+uint32_t shows = 0;
+
 // ---------------------------------------------------------------------------
-// Low-level fill helpers.
+// Colours
 // ---------------------------------------------------------------------------
 
-// Fill a whole strip with a single RGBW value and push it to the hardware.
-void fillAndShow(uint8_t socket, uint8_t r, uint8_t g, uint8_t b, uint8_t w) {
-    Adafruit_NeoPixel& strip = strips[socket];
-    uint32_t color = strip.Color(r, g, b, w);
-    for (uint16_t i = 0; i < LEDS_PER_STRIP; ++i) {
-        strip.setPixelColor(i, color);
-    }
-    strip.show();
+// Same packing as Adafruit_NeoPixel::Color(r, g, b, w).
+constexpr uint32_t rgbw(uint8_t r, uint8_t g, uint8_t b, uint8_t w) {
+    return (uint32_t(w) << 24) | (uint32_t(r) << 16) | (uint32_t(g) << 8) | b;
 }
 
-// Render the color for a state into a strip. 'phase' is only used for ACTIVE
-// (0..255 cycles through the blue pulse).
-void render(uint8_t socket, BoxState s, uint8_t phase = 0) {
-    switch (s) {
-        case BoxState::IDLE:
-            // RGBW white comes exclusively from the W channel → much more
-            // efficient than driving R+G+B together (NFR1).
-            fillAndShow(socket, 0, 0, 0, pct(BRIGHTNESS_IDLE_PCT));
-            break;
+// RGBW white comes exclusively from the W channel → much more efficient than
+// driving R+G+B together (NFR1).
+constexpr uint32_t COLOR_OFF   = 0;
+constexpr uint32_t COLOR_OPEN  = rgbw(0, 0, 0, pct(BRIGHTNESS_IDLE_PCT));
+constexpr uint32_t COLOR_BLUE  = rgbw(0, 0, pct(BRIGHTNESS_SELECTED_PCT), 0);
+constexpr uint32_t COLOR_GREEN = rgbw(0, pct(BRIGHTNESS_RESULT_PCT), 0, 0);
+constexpr uint32_t COLOR_RED   = rgbw(pct(BRIGHTNESS_RESULT_PCT), 0, 0, 0);
 
-        case BoxState::ACTIVE: {
-            // Smooth sinusoidal pulse between MIN and MAX brightness.
-            float f = (phase / 255.0f) * 2.0f * PI;
-            float norm = (1.0f - cosf(f)) * 0.5f;   // 0..1
-            uint8_t level = BRIGHTNESS_ACTIVE_MIN +
-                            static_cast<uint8_t>(norm *
-                                (BRIGHTNESS_ACTIVE_MAX - BRIGHTNESS_ACTIVE_MIN));
-            // Blue only.
-            uint8_t b8 = pct(level);
-            fillAndShow(socket, 0, 0, b8, 0);
-            break;
+// Push one colour to a whole strip.
+void show(uint8_t socket, uint32_t color) {
+    Adafruit_NeoPixel& strip = strips[socket];
+    strip.fill(color, 0, LEDS_PER_STRIP);
+    strip.show();
+    sent[socket]  = color;
+    force[socket] = false;
+    ++shows;
+}
+
+// Breathing level between minPct and maxPct, starting at minPct. 'elapsed' is
+// rounded down to INVITE_FRAME_MS so the level only changes once per frame.
+uint8_t breathe(uint32_t elapsed, uint8_t minPct, uint8_t maxPct) {
+    elapsed -= elapsed % INVITE_FRAME_MS;
+    float f    = float(elapsed % INVITE_PERIOD_MS) / INVITE_PERIOD_MS * 2.0f * PI;
+    float norm = (1.0f - cosf(f)) * 0.5f;   // 0..1
+    uint8_t lo = pct(minPct);
+    uint8_t hi = pct(maxPct);
+    return lo + static_cast<uint8_t>(norm * (hi - lo) + 0.5f);
+}
+
+uint32_t inviteColor(uint32_t elapsed) {
+    switch (currentStyle) {
+        case Style::WHITE:
+            return rgbw(0, 0, 0, breathe(elapsed, INVITE_WHITE_MIN_PCT, INVITE_WHITE_MAX_PCT));
+        case Style::YELLOW: {
+            uint8_t r = breathe(elapsed, INVITE_YELLOW_MIN_PCT, INVITE_YELLOW_MAX_PCT);
+            uint8_t g = (uint16_t(r) * INVITE_YELLOW_G_OF_R) / 100U;
+            return rgbw(r, g, 0, 0);
         }
-
-        case BoxState::MATCH:
-            fillAndShow(socket, 0, pct(BRIGHTNESS_RESULT_PCT), 0, 0);
-            break;
-
-        case BoxState::NO_MATCH:
-            fillAndShow(socket, pct(BRIGHTNESS_RESULT_PCT), 0, 0, 0);
-            break;
+        case Style::BLINK: {
+            bool on = (elapsed / INVITE_BLINK_STEP_MS) % 2 == 0;
+            return rgbw(0, 0, 0, pct(on ? INVITE_BLINK_ON_PCT : INVITE_BLINK_OFF_PCT));
+        }
     }
+    return COLOR_OPEN;
+}
+
+bool isAnimated(BoxView v) {
+    return v == BoxView::INVITE || v == BoxView::CHECKING || v == BoxView::WIN;
+}
+
+uint32_t colorFor(uint8_t socket, uint32_t now, uint32_t invite) {
+    uint32_t elapsed = now - viewSince[socket];
+    switch (view[socket]) {
+        case BoxView::OPEN:     return COLOR_OPEN;
+        case BoxView::INVITE:   return invite;
+        case BoxView::SELECTED: return COLOR_BLUE;
+        case BoxView::CHECKING:
+            return (elapsed / CHECK_BLINK_STEP_MS) % 2 == 0 ? COLOR_BLUE : COLOR_OFF;
+        case BoxView::MATCH:    return COLOR_GREEN;
+        case BoxView::NO_MATCH: return COLOR_RED;
+        case BoxView::WIN:
+            return (elapsed / WIN_STEP_MS) % 2 == 0 ? COLOR_GREEN : COLOR_OPEN;
+    }
+    return COLOR_OPEN;
 }
 
 // Re-send one strip per call, in round-robin order, to repair frames that were
-// corrupted on the way to the LEDs. Uses the normal render path, so a strip
-// that already shows the right colour does not change. ACTIVE (self-healing
-// pulse) and dirty strips (rendered by tick() anyway) are skipped. Silent on
-// purpose: the Pi logs every serial line.
+// corrupted on the way to the LEDs. Animated strips (redrawn anyway) and
+// strips with a pending push are skipped. Silent on purpose: the Pi logs every
+// serial line.
 void staggeredRefresh(uint32_t now) {
     uint32_t interval = sleeping ? LED_SLEEP_REFRESH_MS
                                  : LED_STATIC_REFRESH_MS / NUM_BOXES;
@@ -121,9 +153,9 @@ void staggeredRefresh(uint32_t now) {
     nextRefresh = (nextRefresh + 1) % NUM_BOXES;
 
     if (sleeping) {
-        fillAndShow(i, 0, 0, 0, 0);
-    } else if (currentState[i] != BoxState::ACTIVE && !dirty[i]) {
-        render(i, currentState[i]);
+        show(i, COLOR_OFF);
+    } else if (!isAnimated(view[i]) && !force[i]) {
+        show(i, sent[i]);
     }
 }
 
@@ -134,13 +166,16 @@ void staggeredRefresh(uint32_t now) {
 // ---------------------------------------------------------------------------
 
 void begin() {
+    uint32_t now = millis();
     for (uint8_t i = 0; i < NUM_BOXES; ++i) {
         strips[i].begin();
         strips[i].setBrightness(255);   // we manage brightness via raw values
         strips[i].clear();
         strips[i].show();
-        currentState[i] = BoxState::IDLE;
-        dirty[i] = true;
+        view[i]      = BoxView::OPEN;
+        viewSince[i] = now;
+        sent[i]      = COLOR_OFF;
+        force[i]     = true;
     }
 }
 
@@ -159,32 +194,42 @@ void powerOnTest() {
         uint8_t g = (uint16_t(step.g) * BRIGHTNESS_RESULT_PCT) / 100U;
         uint8_t b = (uint16_t(step.b) * BRIGHTNESS_RESULT_PCT) / 100U;
         for (uint8_t i = 0; i < NUM_BOXES; ++i) {
-            fillAndShow(i, r, g, b, 0);
+            show(i, rgbw(r, g, b, 0));
         }
         delay(POWERON_STEP_MS);
     }
 
     for (uint8_t i = 0; i < NUM_BOXES; ++i) {
-        fillAndShow(i, 0, 0, 0, 0);
+        show(i, COLOR_OFF);
     }
 }
 
-void setBoxState(uint8_t socket, BoxState s) {
+void setBoxView(uint8_t socket, BoxView v) {
     if (socket >= NUM_BOXES) return;
-    if (currentState[socket] != s) {
-        currentState[socket] = s;
-        dirty[socket] = true;
+    if (view[socket] != v) {
+        view[socket]      = v;
+        viewSince[socket] = millis();
     }
 }
 
-void setAllIdle() {
+void setAllOpen() {
     sleeping = false;
+    uint32_t now = millis();
     for (uint8_t i = 0; i < NUM_BOXES; ++i) {
-        // Force a redraw even if the recorded state was already IDLE: after a
-        // sleep the strips are physically dark while currentState says IDLE.
-        currentState[i] = BoxState::IDLE;
-        dirty[i] = true;
+        // Force a redraw even if the recorded view was already OPEN: after a
+        // sleep the strips are physically dark.
+        view[i]      = BoxView::OPEN;
+        viewSince[i] = now;
+        force[i]     = true;
     }
+}
+
+void setStyle(Style s) {
+    currentStyle = s;
+}
+
+Style style() {
+    return currentStyle;
 }
 
 void setSleeping(bool s) {
@@ -192,12 +237,11 @@ void setSleeping(bool s) {
     sleeping = s;
     if (sleeping) {
         for (uint8_t i = 0; i < NUM_BOXES; ++i) {
-            fillAndShow(i, 0, 0, 0, 0);
-            currentState[i] = BoxState::IDLE;
-            dirty[i] = false;
+            show(i, COLOR_OFF);
+            view[i] = BoxView::OPEN;
         }
     } else {
-        setAllIdle();
+        setAllOpen();
     }
 }
 
@@ -213,37 +257,22 @@ void tick() {
 #endif
     if (sleeping) return;   // night mode: strips stay dark
 
-    // Throttle the pulse animation: each show() blocks the loop for ~7 ms.
-    if (now - lastRefreshMs < LED_REFRESH_MS) {
-        // Still process non-pulse dirty flags immediately.
-        bool anyDirty = false;
-        for (uint8_t i = 0; i < NUM_BOXES; ++i) {
-            if (dirty[i] && currentState[i] != BoxState::ACTIVE) {
-                anyDirty = true;
-                break;
-            }
-        }
-        if (!anyDirty) return;
+    bool anyInvite = false;
+    for (uint8_t i = 0; i < NUM_BOXES; ++i) {
+        if (view[i] == BoxView::INVITE) { anyInvite = true; break; }
     }
-    lastRefreshMs = now;
+    if (anyInvite && !inviting) inviteEpoch = now;
+    inviting = anyInvite;
+    uint32_t invite = anyInvite ? inviteColor(now - inviteEpoch) : COLOR_OPEN;
 
     for (uint8_t i = 0; i < NUM_BOXES; ++i) {
-        BoxState s = currentState[i];
-
-        if (s == BoxState::ACTIVE) {
-            // Map wall-clock time to a 0..255 phase over PULSE_PERIOD_MS.
-            uint32_t t = now % PULSE_PERIOD_MS;
-            uint8_t phase = static_cast<uint8_t>((t * 255U) / PULSE_PERIOD_MS);
-            // Skip redundant writes when phase hasn't changed noticeably.
-            if (!dirty[i] && phase == lastPulseLevel[i]) continue;
-            lastPulseLevel[i] = phase;
-            render(i, s, phase);
-            dirty[i] = false;
-        } else if (dirty[i]) {
-            render(i, s);
-            dirty[i] = false;
-        }
+        uint32_t c = colorFor(i, now, invite);
+        if (force[i] || c != sent[i]) show(i, c);
     }
+}
+
+uint32_t showCount() {
+    return shows;
 }
 
 }  // namespace led

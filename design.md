@@ -38,11 +38,11 @@ This document describes the **Memory Game** for a museum installation with the t
 | ID   | Requirement                                                                 |
 |------|-----------------------------------------------------------------------------|
 | FR1  | All 10 boxes start in **idle state** (20% brightness, white color).       |
-| FR2  | Pressing a button activates the box (**blue pulse, 0–40% brightness**).   |
-| FR3  | Pressing a second button activates it and checks (small delay) for a **match** (1A+1B, 2A+2B, etc.). |
-| FR4  | On match: Both boxes turn **green**. On no match: Both turn **red**.       |
-| FR5  | All non-idle states **auto-reset to idle after 10 seconds**.              |
-| FR6  | Game loop is **infinite** (no start/end; visitors can join/leave anytime).|
+| FR2  | Pressing a button selects the box (**solid blue, 40%**); the other open boxes **invite** a second press (white breathing by default, see "Game rules 2026-10"). |
+| FR3  | Pressing a second button checks for a **match** (1A+1B, 2A+2B, etc.) after a short **blue blink** of both boxes (0.6 s). |
+| FR4  | On match: Both boxes turn **green and stay green** (locked). On no match: Both turn **red** for 2.5 s, then open again. |
+| FR5  | A selection without second press is cancelled after **15 s**; no press at all for **60 s** clears the board. |
+| FR6  | **All 5 pairs green = game won**: win animation (~4 s, green ⇄ white), then a clean board. Visitors can join/leave anytime. |
 | FR7  | **No sound, no score, no players, no screen output.**                      |
 | FR8  | On power-on, cycle all LED strips through **red, green, blue** before settling to idle state. |
 
@@ -119,15 +119,24 @@ This document describes the **Memory Game** for a museum installation with the t
 ```mermaid
 stateDiagram-v2
     [*] --> PowerOnTest
-    PowerOnTest --> Idle
-    Idle --> Active: Button Pressed
-    Active --> MatchCheck: Second Button Pressed
-    MatchCheck --> Match: Pairs Match (e.g., 1A+1B)
-    MatchCheck --> NoMatch: Pairs Do Not Match
-    Match --> Idle: After 10s
-    NoMatch --> Idle: After 10s
-    Active --> Idle: After 10s (Timeout)
+    PowerOnTest --> Open
+    Open --> Selected: Button Pressed (other open boxes invite)
+    Selected --> Checking: Second Button Pressed (blue blink 0.6 s)
+    Checking --> Match: Pairs Match (e.g., 1A+1B)
+    Checking --> NoMatch: Pairs Do Not Match
+    Match --> Win: 5th pair found
+    Win --> Open: After win animation (all boxes)
+    Match --> Open: No press for 60 s (all boxes)
+    NoMatch --> Open: After 2.5 s
+    Selected --> Open: After 15 s (Timeout)
 ```
+
+> **Game rules 2026-10** (client feedback after the observation of 2026-10-07):
+> the original "infinite loop, everything resets after 10 s" rules (FR2–FR6 as
+> first written) were replaced by a game with a goal. The rules live in
+> `src/game_logic.{h,cpp}` (hardware-free, host-tested in `test/host/`); the
+> look of each state lives in `src/led_control.cpp`. Sections 4.3/4.4 below
+> describe the original design.
 
 ### **4.3 Game Logic**
 1. **Power-On Test**:
