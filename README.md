@@ -171,6 +171,10 @@ pip install ziglang        # only if no g++/clang++ is on PATH
 python tools/run_host_tests.py
 ```
 
+On the installation, `tools/scenario.py` (run on the Pi, uses vonk-ops'
+`esp_send`) plays scripted rounds through the live ESP so someone on site can
+watch the boxes: `python3 scenario.py [all|wrong|pair|timeout|win|idle|styles]`.
+
 ## Serial simulation (development without hardware)
 
 With no buttons/LEDs wired, you can still validate the full game over
