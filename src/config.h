@@ -116,7 +116,7 @@ static constexpr uint32_t POWERON_STEP_MS      = 1000;    // red/green/blue step
 // Game rules (see game_logic.h). Chosen from 71 days of press logs: 1st->2nd
 // press median 2.9 s / p95 8.3 s, gaps of 30-60 s between presses are rare.
 static constexpr uint32_t SELECT_TIMEOUT_MS    = 15000;   // blue box without 2nd press -> open again
-static constexpr uint32_t CHECK_MS             = 900;     // both boxes pulse blue before the verdict
+static constexpr uint32_t CHECK_MS             = 1500;    // both boxes pulse blue before the verdict
 static constexpr uint8_t  CHECK_PULSES         = 2;       // pulses within CHECK_MS
 static constexpr uint32_t CHECK_FRAME_MS       = 20;      // pulse redraw interval (2 strips only)
 static constexpr uint32_t NO_MATCH_MS          = 2500;    // red, then open again

@@ -153,7 +153,7 @@ Try it on the serial monitor: `SLEEP 10` → strips off → after 10 s `[WAKE] .
 |---|---|
 | Nothing going on | Open boxes white 20 %; found pairs stay green |
 | 1st press on an open box | That box solid blue; the other open boxes **invite** (style below) |
-| 2nd press on another open box | Both pulse blue (2 pulses, 0.9 s), then green (locked) or red (2.5 s, then white) |
+| 2nd press on another open box | Both pulse blue (2 pulses, 1.5 s), then green (locked) or red (2.5 s, then white) |
 | All 5 pairs green | 1 s hold, ~4 s green ⇄ white, then a clean board |
 | Selected box without 2nd press | Back to white after 15 s |
 | No press at all for 60 s | Clean board |
@@ -317,7 +317,7 @@ esptool.py --port /dev/ttyUSB0 write_flash 0x10000 /tmp/firmware.bin
 | `BRIGHTNESS_SELECTED_PCT` | Solid blue selection (40 %); the check pulse uses `BRIGHTNESS_CHECK_MIN/MAX_PCT` (5–60 %, two strips only). |
 | `BRIGHTNESS_RESULT_PCT` | Green/red match-result and win brightness (40 %). |
 | `SELECT_TIMEOUT_MS` / `NO_MATCH_MS` / `GAME_IDLE_RESET_MS` | Selection timeout (15 s), red duration (2.5 s), idle board reset (60 s). |
-| `CHECK_MS` / `CHECK_PULSES` / `WIN_HOLD_MS` / `WIN_ANIM_MS` | Blue pulse before the verdict (2 pulses in 0.9 s), last pair hold (1 s), win animation (4 s). |
+| `CHECK_MS` / `CHECK_PULSES` / `WIN_HOLD_MS` / `WIN_ANIM_MS` | Blue pulse before the verdict (2 pulses in 1.5 s), last pair hold (1 s), win animation (4 s). |
 | `DEFAULT_STYLE`, `INVITE_*` | Default invite style and its levels / period / frame interval. |
 | `BUTTON_DEBOUNCE_MS` | Bounce2 debounce (50 ms, per spec). |
 | `SLEEP_MAX_S` / `SLEEP_MAX_S_CAP` | Night-mode auto-wake default (16 h) and hard cap (24 h). |
