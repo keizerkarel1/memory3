@@ -130,7 +130,14 @@ newline-terminated, case-insensitive). They are accepted regardless of
 |---|---|---|
 | `SLEEP` / `SLEEP <seconds>` | All strips off, button presses ignored. Auto-wakes after `<seconds>` (default `SLEEP_MAX_S` = 57600 = 16 h, capped at 24 h) so a missed `WAKE` can never leave the game dark all day. | `[SLEEP] all strips off, auto-wake in 57600 s` |
 | `WAKE` | Back to normal idle (all boxes white @ 20 %). | `[WAKE] all boxes idle (command)` |
-| `STATUS` | No state change. | `[STATUS] sleeping=0 auto_wake_in_s=0 uptime_s=123 waiting=none` |
+| `STATUS` | No state change. Also restarts the loop/LED measuring window. | `[STATUS] sleeping=0 auto_wake_in_s=0 uptime_s=123 waiting=none style=WHITE pairs=0/5 phase=PLAY loop_max_ms=8 led_push_per_s=10` |
+| `STYLE` / `STYLE <WHITE\|YELLOW\|BLINK>` | Invite style of the other open boxes (see "Game"). Not persisted: after a reset the build default returns. | `[STYLE] YELLOW` |
+| `RESET` | Clean board (all boxes white). | `[RESET] board cleared` |
+
+`loop_max_ms` is the longest gap between two `loop()` runs since the previous
+`STATUS` (each strip push blocks ~7 ms); `led_push_per_s` is the number of
+strip pushes per second in that window — together they show how busy the LED
+cables are.
 
 Every log line is prefixed with the `millis()` uptime (`[  132497] ...`) so the
 Pi-side `serial_logger.py` can correlate events. The Pi writes commands to the
@@ -140,16 +147,44 @@ writer does not toggle DTR/RTS (see "Which USB port to use").
 Try it on the serial monitor: `SLEEP 10` → strips off → after 10 s `[WAKE] ...
 (timeout)`.
 
+## Game (since 2026-10)
+
+| Situation | Boxes |
+|---|---|
+| Nothing going on | Open boxes white 20 %; found pairs stay green |
+| 1st press on an open box | That box solid blue; the other open boxes **invite** (style below) |
+| 2nd press on another open box | Both pulse blue (2 pulses, 1.5 s), then green (locked) or red (2.5 s, then white) |
+| All 5 pairs green | 1 s hold, ~4 s green ⇄ white, then a clean board |
+| Selected box without 2nd press | Back to white after 15 s |
+| No press at all for 60 s | Clean board |
+| Presses on green / red / the blue box, during the check pulse or the win | Ignored (still count as activity) |
+
+Invite styles (`STYLE <name>`): `WHITE` white breathing 8–35 % (default),
+`YELLOW` warm yellow breathing, `BLINK` white on/off. The build env
+`esp32-s3-devkitc-1-yellow` makes `YELLOW` the default. Timings and levels are
+in `src/config.h`; the rules are in `src/game_logic.cpp`.
+
+Host unit tests for the rules (no ESP needed):
+
+```bash
+pip install ziglang        # only if no g++/clang++ is on PATH
+python tools/run_host_tests.py
+```
+
+On the installation, `tools/scenario.py` (run on the Pi, uses vonk-ops'
+`esp_send`) plays scripted rounds through the live ESP so someone on site can
+watch the boxes: `python3 scenario.py [all|wrong|pair|timeout|win|idle|styles]`.
+
 ## Serial simulation (development without hardware)
 
-With no buttons/LEDs wired, you can still validate the full state machine over
+With no buttons/LEDs wired, you can still validate the full game over
 serial. Open the monitor at 115200 baud and type a socket label + Enter:
 
 ```
-1A <Enter>     # first half of pair 1 → ACTIVE (blue pulse)
-1B <Enter>     # matching second half → MATCH (green)
+1A <Enter>     # first half of pair 1 → SELECTED (blue), others invite
+1B <Enter>     # matching second half → blue pulse → MATCH (green, stays)
 2A <Enter>
-3B <Enter>     # non-matching → NO_MATCH (red)
+3B <Enter>     # non-matching → blue pulse → NO_MATCH (red 2.5 s)
 ```
 
 Valid tokens: `1A 1B 2A 2B 3A 3B 4A 4B 5A 5B` (case-insensitive).
@@ -165,12 +200,15 @@ memory/
 ├── platformio.ini              # board, framework, libs, flash/PSRAM config
 ├── memory-opus.md              # full design document
 ├── README.md                   # this file
-└── src/
-    ├── main.cpp                # setup/loop + per-box state machine
-    ├── config.h                # GPIO map, timings, brightness, pair logic
-    ├── states.h                # BoxState enum
-    ├── led_control.{h,cpp}     # Adafruit_NeoPixel rendering + pulse anim
-    └── button_handler.{h,cpp}  # Bounce2 + press event queue
+├── src/
+│   ├── main.cpp                # setup/loop, serial commands, night mode
+│   ├── game_logic.{h,cpp}      # game rules (hardware-free, host-tested)
+│   ├── config.h                # GPIO map, timings, brightness, styles, pair logic
+│   ├── states.h                # BoxView + Style enums
+│   ├── led_control.{h,cpp}     # Adafruit_NeoPixel rendering + animations
+│   └── button_handler.{h,cpp}  # Bounce2 + press event queue
+├── test/host/                  # host unit tests for game_logic
+└── tools/run_host_tests.py     # compiles + runs them
 ```
 
 ### Why Adafruit_NeoPixel and not NeoPixelBus
@@ -178,9 +216,10 @@ The design doc calls out NeoPixelBus. On ESP32-S3 the RMT peripheral only has
 **4 TX channels**, so 10 independent DMA-driven strips is not possible without
 parallel-I2S tricks that complicate maintenance. `Adafruit_NeoPixel` borrows
 an RMT channel per `show()` call, one strip at a time; the ~7 ms blocking
-`show()` per 180-LED strip is irrelevant because we only update LEDs on state
-changes, a slow (~50 Hz) pulse refresh and a staggered once-a-second re-send of
-static colours (see below).
+`show()` per 180-LED strip is acceptable because a strip is only pushed when
+its colour changes (animations change in steps: breathing every 80 ms, check pulse every 20 ms, blinks
+per step) plus a staggered once-a-second re-send of static colours (see
+below). Worst case — nine strips breathing — is ~65 ms per frame.
 
 ### Robustness features
 * **Task watchdog** — `esp_task_wdt` is armed on the `loop()` task with a 5 s
@@ -192,7 +231,7 @@ static colours (see below).
 * **Guarded serial prints** — all logging goes through `LOGF`/`LOGLN` macros
   that skip the call when no USB-CDC host is attached, so a full TX buffer
   can't stall the game loop.
-* **Periodic LED refresh** — static colours (white / green / red) are sent
+* **Periodic LED refresh** — static colours (white / blue / green / red) are sent
   again about once a second, one strip every 100 ms, so a frame corrupted on
   the long data cable heals by itself instead of leaving a box stuck on the
   wrong colour. While sleeping, black is re-sent (one strip per second).
@@ -274,11 +313,12 @@ esptool.py --port /dev/ttyUSB0 write_flash 0x10000 /tmp/firmware.bin
 | Constant | Purpose |
 |---|---|
 | `LEDS_PER_STRIP` | Max pixels written to each strip (180 = longest run). |
-| `BRIGHTNESS_IDLE_PCT` | White idle brightness (20 %). |
-| `BRIGHTNESS_ACTIVE_MIN/MAX` | Pulse min/max (0 % / 40 %). |
-| `BRIGHTNESS_RESULT_PCT` | Green/red match-result brightness (40 %). |
-| `STATE_TIMEOUT_MS` | Auto-reset to idle timeout (10 s). |
-| `PULSE_PERIOD_MS` | Blue-pulse cycle length (1500 ms). |
+| `BRIGHTNESS_IDLE_PCT` | White open-box brightness (20 %). |
+| `BRIGHTNESS_SELECTED_PCT` | Solid blue selection (40 %); the check pulse uses `BRIGHTNESS_CHECK_MIN/MAX_PCT` (5–60 %, two strips only). |
+| `BRIGHTNESS_RESULT_PCT` | Green/red match-result and win brightness (40 %). |
+| `SELECT_TIMEOUT_MS` / `NO_MATCH_MS` / `GAME_IDLE_RESET_MS` | Selection timeout (15 s), red duration (2.5 s), idle board reset (60 s). |
+| `CHECK_MS` / `CHECK_PULSES` / `WIN_HOLD_MS` / `WIN_ANIM_MS` | Blue pulse before the verdict (2 pulses in 1.5 s), last pair hold (1 s), win animation (4 s). |
+| `DEFAULT_STYLE`, `INVITE_*` | Default invite style and its levels / period / frame interval. |
 | `BUTTON_DEBOUNCE_MS` | Bounce2 debounce (50 ms, per spec). |
 | `SLEEP_MAX_S` / `SLEEP_MAX_S_CAP` | Night-mode auto-wake default (16 h) and hard cap (24 h). |
 

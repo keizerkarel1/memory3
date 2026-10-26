@@ -4,8 +4,8 @@
 
 ESP32-S3 firmware for a 10-box physical memory game with theme "Old & New".
 5 pairs of boxes (1A/1B, 2A/2B, ... 5A/5B). Visitors press buttons to find
-matching pairs. Visual feedback via SK6812 RGBW LED strips. Infinite loop —
-no start, no end, no score.
+matching pairs. Visual feedback via SK6812 RGBW LED strips. Found pairs stay
+green; all 5 found = win animation and a clean board (since 2026-10).
 
 ## Tech Stack
 
@@ -17,11 +17,17 @@ no start, no end, no score.
 
 ## Key Architecture
 
-- Per-box state machine: `IDLE → ACTIVE (blue pulse) → MATCH (green) / NO_MATCH (red) → IDLE`
-- Single `waitingSocket` global tracks which box is awaiting a partner
+- Game rules in `src/game_logic.{h,cpp}` — no Arduino includes, time passed in; host unit tests in
+  `test/host/`, run with `python tools/run_host_tests.py` (needs g++/clang++ or `pip install ziglang`)
+- Box views (`states.h`): `OPEN → SELECTED (solid blue, others INVITE) → CHECKING (blue pulse) → MATCH (green, locked) /
+  NO_MATCH (red 2.5 s)`; all 5 pairs → `WIN` animation → clean board; 15 s selection timeout, 60 s idle reset
+- `led_control` turns views into colours and only pushes strips whose colour changed; invite style WHITE / YELLOW /
+  BLINK switchable with serial `STYLE` (not persisted; default per build env, see `platformio.ini`)
+- `config.h` is included by the host tests: keep it free of Arduino APIs
 - Task watchdog (5 s) — auto-reboots on hang
 - Serial simulation mode (`ENABLE_SERIAL_SIMULATION 1`) — type "1A", "1B" etc. to test without hardware
-- Night mode: serial `SLEEP [seconds]` / `WAKE` / `STATUS` from the Pi (`vonk-ops` repo); strips off, presses ignored, auto-wake after `SLEEP_MAX_S`
+- Night mode: serial `SLEEP [seconds]` / `WAKE` / `STATUS` from the Pi (`vonk-ops` repo); strips off, presses ignored, auto-wake after `SLEEP_MAX_S`; sleep clears the game
+- Log tags used for play statistics: `[GAME] START/PAIR/WON/RESET/READY`, `[SELECT]`, `[CHECK]`, `[CANCEL]`, `[IGNORE]`
 - Power-on self-test: cycles all strips RED → GREEN → BLUE
 
 ## Hardware Notes
