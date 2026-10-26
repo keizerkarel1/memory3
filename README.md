@@ -153,11 +153,11 @@ Try it on the serial monitor: `SLEEP 10` → strips off → after 10 s `[WAKE] .
 |---|---|
 | Nothing going on | Open boxes white 20 %; found pairs stay green |
 | 1st press on an open box | That box solid blue; the other open boxes **invite** (style below) |
-| 2nd press on another open box | Both blink blue (0.6 s), then green (locked) or red (2.5 s, then white) |
+| 2nd press on another open box | Both pulse blue (2 pulses, 0.9 s), then green (locked) or red (2.5 s, then white) |
 | All 5 pairs green | 1 s hold, ~4 s green ⇄ white, then a clean board |
 | Selected box without 2nd press | Back to white after 15 s |
 | No press at all for 60 s | Clean board |
-| Presses on green / red / the blue box, during the blink or the win | Ignored (still count as activity) |
+| Presses on green / red / the blue box, during the check pulse or the win | Ignored (still count as activity) |
 
 Invite styles (`STYLE <name>`): `WHITE` white breathing 8–35 % (default),
 `YELLOW` warm yellow breathing, `BLINK` white on/off. The build env
@@ -182,9 +182,9 @@ serial. Open the monitor at 115200 baud and type a socket label + Enter:
 
 ```
 1A <Enter>     # first half of pair 1 → SELECTED (blue), others invite
-1B <Enter>     # matching second half → blink → MATCH (green, stays)
+1B <Enter>     # matching second half → blue pulse → MATCH (green, stays)
 2A <Enter>
-3B <Enter>     # non-matching → blink → NO_MATCH (red 2.5 s)
+3B <Enter>     # non-matching → blue pulse → NO_MATCH (red 2.5 s)
 ```
 
 Valid tokens: `1A 1B 2A 2B 3A 3B 4A 4B 5A 5B` (case-insensitive).
@@ -217,7 +217,7 @@ The design doc calls out NeoPixelBus. On ESP32-S3 the RMT peripheral only has
 parallel-I2S tricks that complicate maintenance. `Adafruit_NeoPixel` borrows
 an RMT channel per `show()` call, one strip at a time; the ~7 ms blocking
 `show()` per 180-LED strip is acceptable because a strip is only pushed when
-its colour changes (animations change in steps: breathing every 80 ms, blinks
+its colour changes (animations change in steps: breathing every 80 ms, check pulse every 20 ms, blinks
 per step) plus a staggered once-a-second re-send of static colours (see
 below). Worst case — nine strips breathing — is ~65 ms per frame.
 
@@ -314,10 +314,10 @@ esptool.py --port /dev/ttyUSB0 write_flash 0x10000 /tmp/firmware.bin
 |---|---|
 | `LEDS_PER_STRIP` | Max pixels written to each strip (180 = longest run). |
 | `BRIGHTNESS_IDLE_PCT` | White open-box brightness (20 %). |
-| `BRIGHTNESS_SELECTED_PCT` | Solid blue selection / check blink (40 %). |
+| `BRIGHTNESS_SELECTED_PCT` | Solid blue selection (40 %); the check pulse uses `BRIGHTNESS_CHECK_MIN/MAX_PCT` (5–60 %, two strips only). |
 | `BRIGHTNESS_RESULT_PCT` | Green/red match-result and win brightness (40 %). |
 | `SELECT_TIMEOUT_MS` / `NO_MATCH_MS` / `GAME_IDLE_RESET_MS` | Selection timeout (15 s), red duration (2.5 s), idle board reset (60 s). |
-| `CHECK_BLINK_MS` / `WIN_HOLD_MS` / `WIN_ANIM_MS` | Blue blink before the verdict (0.6 s), last pair hold (1 s), win animation (4 s). |
+| `CHECK_MS` / `CHECK_PULSES` / `WIN_HOLD_MS` / `WIN_ANIM_MS` | Blue pulse before the verdict (2 pulses in 0.9 s), last pair hold (1 s), win animation (4 s). |
 | `DEFAULT_STYLE`, `INVITE_*` | Default invite style and its levels / period / frame interval. |
 | `BUTTON_DEBOUNCE_MS` | Bounce2 debounce (50 ms, per spec). |
 | `SLEEP_MAX_S` / `SLEEP_MAX_S_CAP` | Night-mode auto-wake default (16 h) and hard cap (24 h). |

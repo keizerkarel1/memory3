@@ -25,7 +25,7 @@ uint32_t phaseAt = 0;
 
 uint8_t  selected = NONE;       // box waiting for its partner
 
-uint8_t  checkA = NONE;         // pair currently blinking before the verdict
+uint8_t  checkA = NONE;         // pair currently pulsing before the verdict
 uint8_t  checkB = NONE;
 bool     checkMatched = false;
 uint32_t checkAt = 0;
@@ -63,7 +63,7 @@ void clearBoard(uint32_t now) {
     attempts = 0;
 }
 
-// The blink is over: show the verdict and count the pair.
+// The check pulse is over: show the verdict and count the pair.
 void finishCheck(uint32_t now) {
     uint8_t a = checkA;
     uint8_t b = checkB;
@@ -126,7 +126,7 @@ void press(uint8_t socket, uint32_t now) {
         return;
     }
 
-    // Second press: blink both, verdict in finishCheck().
+    // Second press: pulse both, verdict in finishCheck().
     checkA       = selected;
     checkB       = socket;
     selected     = NONE;
@@ -155,7 +155,7 @@ void tick(uint32_t now) {
         return;
     }
 
-    if (checkA != NONE && now - checkAt >= CHECK_BLINK_MS) {
+    if (checkA != NONE && now - checkAt >= CHECK_MS) {
         finishCheck(now);
         if (phase != Phase::PLAY) return;
     }

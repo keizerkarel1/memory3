@@ -70,7 +70,7 @@ int countView(BoxView want) {
 void findPair(uint8_t a) {
     press(a);
     press(partnerOf(a));
-    advance(CHECK_BLINK_MS);
+    advance(CHECK_MS);
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ void testWrongPair() {
     CHECK(countView(BoxView::OPEN) == NUM_BOXES - 2);   // invite stopped
     CHECK(logged("[CHECK] 1A + 2A -> NO_MATCH"));
 
-    advance(CHECK_BLINK_MS - 10);
+    advance(CHECK_MS - 10);
     CHECK(v(S1A) == BoxView::CHECKING);
     advance(10);
     CHECK(v(S1A) == BoxView::NO_MATCH);
@@ -154,7 +154,7 @@ void testPressesDuringCheckIgnored() {
     press(S3A);
     CHECK(v(S3A) == BoxView::OPEN);
     CHECK(logged("[IGNORE] 3A (checking)"));
-    advance(CHECK_BLINK_MS);
+    advance(CHECK_MS);
     CHECK(v(S3A) == BoxView::OPEN);
     CHECK(std::strcmp(game::selectedLabel(), "none") == 0);
 }
@@ -163,7 +163,7 @@ void testNewSelectionWhileRed() {
     start();
     press(S1A);
     press(S2A);
-    advance(CHECK_BLINK_MS);
+    advance(CHECK_MS);
     press(S1A);                                   // red box
     CHECK(logged("[IGNORE] 1A (in NO_MATCH)"));
     press(S3A);                                   // open box -> new selection
@@ -192,7 +192,7 @@ void testIdleReset() {
     start();
     findPair(S1A);
     findPair(S2A);
-    advance(GAME_IDLE_RESET_MS - CHECK_BLINK_MS - 10);
+    advance(GAME_IDLE_RESET_MS - CHECK_MS - 10);
     CHECK(v(S1A) == BoxView::MATCH);
     advance(10);
     CHECK(countView(BoxView::OPEN) == NUM_BOXES);
@@ -220,7 +220,7 @@ void testFullGameAndWin() {
     start();
     press(S1A);                                   // one wrong attempt first
     press(S2B);
-    advance(CHECK_BLINK_MS + NO_MATCH_MS);
+    advance(CHECK_MS + NO_MATCH_MS);
     for (uint8_t a = 0; a < NUM_BOXES; a += 2) findPair(a);
 
     CHECK(game::pairsFound() == NUM_PAIRS);
@@ -276,7 +276,7 @@ void testCheckBlinkInterruptedByReset() {
     press(S1A);
     press(S1B);
     game::reset(now, "command");
-    advance(CHECK_BLINK_MS * 2);
+    advance(CHECK_MS * 2);
     CHECK(countView(BoxView::OPEN) == NUM_BOXES);
     CHECK(game::pairsFound() == 0);
 }

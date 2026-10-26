@@ -22,7 +22,7 @@ void begin();
 void powerOnTest();
 
 // Record the desired view for a single box. Cheap; does not push to LEDs.
-// Animations (blink, win) start when the view changes.
+// Animations (check pulse, win) start when the view changes.
 void setBoxView(uint8_t socket, BoxView v);
 
 // Force all 10 boxes to OPEN and redraw them. Also leaves sleep mode.

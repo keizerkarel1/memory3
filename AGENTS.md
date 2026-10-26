@@ -19,7 +19,7 @@ green; all 5 found = win animation and a clean board (since 2026-10).
 
 - Game rules in `src/game_logic.{h,cpp}` — no Arduino includes, time passed in; host unit tests in
   `test/host/`, run with `python tools/run_host_tests.py` (needs g++/clang++ or `pip install ziglang`)
-- Box views (`states.h`): `OPEN → SELECTED (solid blue, others INVITE) → CHECKING (blue blink) → MATCH (green, locked) /
+- Box views (`states.h`): `OPEN → SELECTED (solid blue, others INVITE) → CHECKING (blue pulse) → MATCH (green, locked) /
   NO_MATCH (red 2.5 s)`; all 5 pairs → `WIN` animation → clean board; 15 s selection timeout, 60 s idle reset
 - `led_control` turns views into colours and only pushes strips whose colour changed; invite style WHITE / YELLOW /
   BLINK switchable with serial `STYLE` (not persisted; default per build env, see `platformio.ini`)

@@ -12,7 +12,7 @@ enum class BoxView : uint8_t {
     OPEN,       // white 20 % — free to press
     INVITE,     // open box while another box waits for its partner (style-dependent)
     SELECTED,   // solid blue — first of a pair, waiting for the second press
-    CHECKING,   // blinking blue — pair pressed, verdict follows
+    CHECKING,   // pulsing blue — pair pressed, verdict follows
     MATCH,      // solid green — pair found, locked until the game ends
     NO_MATCH,   // solid red — wrong pair, open again after NO_MATCH_MS
     WIN         // all boxes green <-> white — game won

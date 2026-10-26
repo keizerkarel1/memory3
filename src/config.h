@@ -99,7 +99,9 @@ static constexpr uint16_t LEDS_PER_STRIP = 180;
 // Rule of thumb: never exceed the power-on test (all 10 strips at 40 % on one
 // channel), which is proven on site.
 static constexpr uint8_t BRIGHTNESS_IDLE_PCT     = 20;  // white open box
-static constexpr uint8_t BRIGHTNESS_SELECTED_PCT = 40;  // solid blue first press / check blink
+static constexpr uint8_t BRIGHTNESS_SELECTED_PCT = 40;  // solid blue first press
+static constexpr uint8_t BRIGHTNESS_CHECK_MIN_PCT = 5;  // blue pulse of the checked pair (2 strips)
+static constexpr uint8_t BRIGHTNESS_CHECK_MAX_PCT = 60;
 static constexpr uint8_t BRIGHTNESS_RESULT_PCT   = 40;  // green / red after match check, win green
 
 // Helper: percent (0-100) → 8-bit intensity.
@@ -114,8 +116,9 @@ static constexpr uint32_t POWERON_STEP_MS      = 1000;    // red/green/blue step
 // Game rules (see game_logic.h). Chosen from 71 days of press logs: 1st->2nd
 // press median 2.9 s / p95 8.3 s, gaps of 30-60 s between presses are rare.
 static constexpr uint32_t SELECT_TIMEOUT_MS    = 15000;   // blue box without 2nd press -> open again
-static constexpr uint32_t CHECK_BLINK_MS       = 600;     // both boxes blink blue before the verdict
-static constexpr uint32_t CHECK_BLINK_STEP_MS  = 150;     // -> on/off/on/off
+static constexpr uint32_t CHECK_MS             = 900;     // both boxes pulse blue before the verdict
+static constexpr uint8_t  CHECK_PULSES         = 2;       // pulses within CHECK_MS
+static constexpr uint32_t CHECK_FRAME_MS       = 20;      // pulse redraw interval (2 strips only)
 static constexpr uint32_t NO_MATCH_MS          = 2500;    // red, then open again
 static constexpr uint32_t WIN_HOLD_MS          = 1000;    // last pair green before the win animation
 static constexpr uint32_t WIN_ANIM_MS          = 4000;    // all boxes green <-> white

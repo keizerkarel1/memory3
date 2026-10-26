@@ -34,13 +34,13 @@ def send(command: str, expect: str = "", wait: float = 0.0) -> None:
 def wrong() -> None:
     send("RESET", "all white", 2)
     send("1A", "1A solid blue, other boxes invite", 5)
-    send("2A", "1A + 2A blink blue, then red 2.5 s, then white", 5)
+    send("2A", "1A + 2A pulse blue, then red 2.5 s, then white", 5)
 
 
 def pair() -> None:
     send("RESET", "all white", 2)
     send("1A", "1A blue, others invite", 3)
-    send("1B", "1A + 1B blink blue, then green (stays)", 4)
+    send("1B", "1A + 1B pulse blue, then green (stays)", 4)
     send("1A", "ignored: 1A stays green", 2)
 
 
@@ -54,7 +54,7 @@ def win() -> None:
     for p in PAIRS:
         a, b = p.split()
         send(a, f"{a} blue", 1.5)
-        send(b, f"{a} + {b} blink, green", 2)
+        send(b, f"{a} + {b} pulse, green", 2)
     print("  expect: 1 s green, ~4 s green <-> white, then all white")
     time.sleep(7)
 

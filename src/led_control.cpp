@@ -15,7 +15,7 @@
 //
 // Every tick() computes the wanted colour of each strip and only pushes the
 // strips whose colour changed. Animations change colour in steps (breathing
-// every INVITE_FRAME_MS, blinks per step), which caps the LED traffic.
+// every INVITE_FRAME_MS, check pulse every CHECK_FRAME_MS, blinks per step), which caps the LED traffic.
 // ----------------------------------------------------------------------------
 #include "led_control.h"
 
@@ -92,10 +92,11 @@ void show(uint8_t socket, uint32_t color) {
 }
 
 // Breathing level between minPct and maxPct, starting at minPct. 'elapsed' is
-// rounded down to INVITE_FRAME_MS so the level only changes once per frame.
-uint8_t breathe(uint32_t elapsed, uint8_t minPct, uint8_t maxPct) {
-    elapsed -= elapsed % INVITE_FRAME_MS;
-    float f    = float(elapsed % INVITE_PERIOD_MS) / INVITE_PERIOD_MS * 2.0f * PI;
+// rounded down to frameMs so the level only changes once per frame.
+uint8_t breathe(uint32_t elapsed, uint32_t periodMs, uint32_t frameMs,
+                uint8_t minPct, uint8_t maxPct) {
+    elapsed -= elapsed % frameMs;
+    float f    = float(elapsed % periodMs) / periodMs * 2.0f * PI;
     float norm = (1.0f - cosf(f)) * 0.5f;   // 0..1
     uint8_t lo = pct(minPct);
     uint8_t hi = pct(maxPct);
@@ -105,9 +106,11 @@ uint8_t breathe(uint32_t elapsed, uint8_t minPct, uint8_t maxPct) {
 uint32_t inviteColor(uint32_t elapsed) {
     switch (currentStyle) {
         case Style::WHITE:
-            return rgbw(0, 0, 0, breathe(elapsed, INVITE_WHITE_MIN_PCT, INVITE_WHITE_MAX_PCT));
+            return rgbw(0, 0, 0, breathe(elapsed, INVITE_PERIOD_MS, INVITE_FRAME_MS,
+                                         INVITE_WHITE_MIN_PCT, INVITE_WHITE_MAX_PCT));
         case Style::YELLOW: {
-            uint8_t r = breathe(elapsed, INVITE_YELLOW_MIN_PCT, INVITE_YELLOW_MAX_PCT);
+            uint8_t r = breathe(elapsed, INVITE_PERIOD_MS, INVITE_FRAME_MS,
+                                INVITE_YELLOW_MIN_PCT, INVITE_YELLOW_MAX_PCT);
             uint8_t g = (uint16_t(r) * INVITE_YELLOW_G_OF_R) / 100U;
             return rgbw(r, g, 0, 0);
         }
@@ -130,7 +133,8 @@ uint32_t colorFor(uint8_t socket, uint32_t now, uint32_t invite) {
         case BoxView::INVITE:   return invite;
         case BoxView::SELECTED: return COLOR_BLUE;
         case BoxView::CHECKING:
-            return (elapsed / CHECK_BLINK_STEP_MS) % 2 == 0 ? COLOR_BLUE : COLOR_OFF;
+            return rgbw(0, 0, breathe(elapsed, CHECK_MS / CHECK_PULSES, CHECK_FRAME_MS,
+                                      BRIGHTNESS_CHECK_MIN_PCT, BRIGHTNESS_CHECK_MAX_PCT), 0);
         case BoxView::MATCH:    return COLOR_GREEN;
         case BoxView::NO_MATCH: return COLOR_RED;
         case BoxView::WIN:

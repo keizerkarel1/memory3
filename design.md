@@ -39,7 +39,7 @@ This document describes the **Memory Game** for a museum installation with the t
 |------|-----------------------------------------------------------------------------|
 | FR1  | All 10 boxes start in **idle state** (20% brightness, white color).       |
 | FR2  | Pressing a button selects the box (**solid blue, 40%**); the other open boxes **invite** a second press (white breathing by default, see "Game rules 2026-10"). |
-| FR3  | Pressing a second button checks for a **match** (1A+1B, 2A+2B, etc.) after a short **blue blink** of both boxes (0.6 s). |
+| FR3  | Pressing a second button checks for a **match** (1A+1B, 2A+2B, etc.) after a short **blue pulse** of both boxes (2 pulses, 0.9 s). |
 | FR4  | On match: Both boxes turn **green and stay green** (locked). On no match: Both turn **red** for 2.5 s, then open again. |
 | FR5  | A selection without second press is cancelled after **15 s**; no press at all for **60 s** clears the board. |
 | FR6  | **All 5 pairs green = game won**: win animation (~4 s, green ⇄ white), then a clean board. Visitors can join/leave anytime. |
@@ -121,7 +121,7 @@ stateDiagram-v2
     [*] --> PowerOnTest
     PowerOnTest --> Open
     Open --> Selected: Button Pressed (other open boxes invite)
-    Selected --> Checking: Second Button Pressed (blue blink 0.6 s)
+    Selected --> Checking: Second Button Pressed (blue pulse 0.9 s)
     Checking --> Match: Pairs Match (e.g., 1A+1B)
     Checking --> NoMatch: Pairs Do Not Match
     Match --> Win: 5th pair found

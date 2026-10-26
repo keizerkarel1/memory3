@@ -6,12 +6,12 @@
 //
 // Rules (agreed with De Reuringdienst, October 2026):
 //   * 1st press on an open box -> SELECTED (blue); the other open boxes INVITE.
-//   * 2nd press on another open box -> both CHECKING (blue blink) for
-//     CHECK_BLINK_MS, then MATCH (green, locked) or NO_MATCH (red for
+//   * 2nd press on another open box -> both CHECKING (blue pulse) for
+//     CHECK_MS, then MATCH (green, locked) or NO_MATCH (red for
 //     NO_MATCH_MS, then open again).
 //   * All 5 pairs green -> WIN_HOLD_MS, WIN animation for WIN_ANIM_MS, clean board.
 //   * Ignored: presses on green / red / the selected box, during the check
-//     blink and during the win. They still count as activity.
+//     check pulse and during the win. They still count as activity.
 //   * A selection without 2nd press is cancelled after SELECT_TIMEOUT_MS; no
 //     press at all for GAME_IDLE_RESET_MS -> clean board.
 // ----------------------------------------------------------------------------
